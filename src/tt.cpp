@@ -120,13 +120,16 @@ TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
 
   TTEntry* const tte = first_entry(key);
   const uint16_t key16 = key >> 48;  // Use the high 16 bits as key inside the cluster
+  bool empty;
 
   for (int i = 0; i < ClusterSize; ++i)
-      if (!tte[i].key16 || tte[i].key16 == key16)
+      // TTEntry::save is never called with zero values of both bound and depth.
+      // We rely on this property to detect empty slots.
+      if ((empty = !tte[i].genBound8 && !tte[i].depth8) || tte[i].key16 == key16)
       {
           tte[i].genBound8 = uint8_t(generation8 | (tte[i].genBound8 & 0x7)); // Refresh
 
-          return found = (bool)tte[i].key16, &tte[i];
+          return found = !empty, &tte[i];
       }
 
   // Find an entry to be replaced according to the replacement strategy
