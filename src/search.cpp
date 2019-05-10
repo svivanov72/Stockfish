@@ -520,7 +520,10 @@ namespace {
     {
         alpha = value_draw(depth, pos.this_thread());
         if (alpha >= beta)
+        {
+            ss->drawDepth = ONE_PLY;
             return alpha;
+        }
     }
 
     // Dive into quiescence search when the depth reaches zero
@@ -552,6 +555,7 @@ namespace {
     moveCount = captureCount = quietCount = ss->moveCount = 0;
     bestValue = -VALUE_INFINITE;
     maxValue = VALUE_INFINITE;
+    ss->drawDepth = DEPTH_MAX;
 
     // Check for the available remaining time
     if (thisThread == Threads.main())
@@ -567,8 +571,11 @@ namespace {
         if (   Threads.stop.load(std::memory_order_relaxed)
             || pos.is_draw(ss->ply)
             || ss->ply >= MAX_PLY)
+        {
+            ss->drawDepth = DEPTH_ZERO;
             return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos)
                                                     : value_draw(depth, pos.this_thread());
+        }
 
         // Step 3. Mate distance pruning. Even if we mate at the next move our score
         // would be at best mate_in(ss->ply+1), but if alpha is already bigger because
@@ -1125,6 +1132,7 @@ moves_loop: // When in check, search starts from here
       if (value > bestValue)
       {
           bestValue = value;
+          ss->drawDepth = (ss+1)->drawDepth + ONE_PLY;
 
           if (value > alpha)
           {
@@ -1195,11 +1203,11 @@ moves_loop: // When in check, search starts from here
     if (PvNode)
         bestValue = std::min(bestValue, maxValue);
 
-    if (!excludedMove)
+    if (!excludedMove && ss->drawDepth > ONE_PLY)
         tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
                   bestValue >= beta ? BOUND_LOWER :
                   PvNode && bestMove ? BOUND_EXACT : BOUND_UPPER,
-                  depth, bestMove, ss->staticEval);
+                  std::min(depth, ss->drawDepth), bestMove, ss->staticEval);
 
     assert(bestValue > -VALUE_INFINITE && bestValue < VALUE_INFINITE);
 
@@ -1241,11 +1249,15 @@ moves_loop: // When in check, search starts from here
     bestMove = MOVE_NONE;
     inCheck = pos.checkers();
     moveCount = 0;
+    ss->drawDepth = DEPTH_MAX;
 
     // Check for an immediate draw or maximum ply reached
     if (   pos.is_draw(ss->ply)
         || ss->ply >= MAX_PLY)
+    {
+        ss->drawDepth = DEPTH_ZERO;
         return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos) : VALUE_DRAW;
+    }
 
     assert(0 <= ss->ply && ss->ply < MAX_PLY);
 
@@ -1389,6 +1401,7 @@ moves_loop: // When in check, search starts from here
       if (value > bestValue)
       {
           bestValue = value;
+          ss->drawDepth = (ss+1)->drawDepth + ONE_PLY;
 
           if (value > alpha)
           {
@@ -1409,6 +1422,14 @@ moves_loop: // When in check, search starts from here
     // and no legal moves were found, it is checkmate.
     if (inCheck && bestValue == -VALUE_INFINITE)
         return mated_in(ss->ply); // Plies to mate from the root
+
+    if (ss->drawDepth <= ONE_PLY)
+    {
+        if (!ttHit)
+            tte->save(posKey, VALUE_NONE, pvHit, BOUND_NONE,
+                          DEPTH_NONE, MOVE_NONE, ss->staticEval);
+        return bestValue;
+    }
 
     tte->save(posKey, value_to_tt(bestValue, ss->ply), pvHit,
               bestValue >= beta ? BOUND_LOWER :
