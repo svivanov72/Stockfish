@@ -45,6 +45,9 @@ struct TTEntry {
   Bound bound() const { return (Bound)(genBound8 & 0x3); }
   void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev);
 
+  // only for draw scores
+  int rule50_count() const { return (-value16) & 0x7f; }
+
 private:
   friend class TranspositionTable;
 

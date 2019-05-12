@@ -108,7 +108,7 @@ namespace {
   template <NodeType NT>
   Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth = DEPTH_ZERO);
 
-  Value value_to_tt(Value v, int ply);
+  Value value_to_tt(Value v, int ply, int rule50);
   Value value_from_tt(Value v, int ply);
   void update_pv(Move* pv, Move move, Move* childPv);
   void update_continuation_histories(Stack* ss, Piece pc, Square to, int bonus);
@@ -616,7 +616,9 @@ namespace {
         && tte->depth() >= depth
         && ttValue != VALUE_NONE // Possible in case of TT access race
         && (ttValue >= beta ? (tte->bound() & BOUND_LOWER)
-                            : (tte->bound() & BOUND_UPPER)))
+                            : (tte->bound() & BOUND_UPPER))
+        // Do not trust draw scores with higher 50-move counters
+        && (abs(ttValue)>1 || tte->rule50_count() <= pos.rule50_count()))
     {
         // If ttMove is quiet, update move sorting heuristics on TT hit
         if (ttMove)
@@ -674,7 +676,7 @@ namespace {
                 if (    b == BOUND_EXACT
                     || (b == BOUND_LOWER ? value >= beta : value <= alpha))
                 {
-                    tte->save(posKey, value_to_tt(value, ss->ply), ttPv, b,
+                    tte->save(posKey, value_to_tt(value, ss->ply, pos.rule50_count()), ttPv, b,
                               std::min(DEPTH_MAX - ONE_PLY, depth + 6 * ONE_PLY),
                               MOVE_NONE, VALUE_NONE);
 
@@ -1196,7 +1198,7 @@ moves_loop: // When in check, search starts from here
         bestValue = std::min(bestValue, maxValue);
 
     if (!excludedMove)
-        tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
+        tte->save(posKey, value_to_tt(bestValue, ss->ply, pos.rule50_count()), ttPv,
                   bestValue >= beta ? BOUND_LOWER :
                   PvNode && bestMove ? BOUND_EXACT : BOUND_UPPER,
                   depth, bestMove, ss->staticEval);
@@ -1297,7 +1299,7 @@ moves_loop: // When in check, search starts from here
         if (bestValue >= beta)
         {
             if (!ttHit)
-                tte->save(posKey, value_to_tt(bestValue, ss->ply), pvHit, BOUND_LOWER,
+                tte->save(posKey, value_to_tt(bestValue, ss->ply, pos.rule50_count()), pvHit, BOUND_LOWER,
                           DEPTH_NONE, MOVE_NONE, ss->staticEval);
 
             return bestValue;
@@ -1410,7 +1412,7 @@ moves_loop: // When in check, search starts from here
     if (inCheck && bestValue == -VALUE_INFINITE)
         return mated_in(ss->ply); // Plies to mate from the root
 
-    tte->save(posKey, value_to_tt(bestValue, ss->ply), pvHit,
+    tte->save(posKey, value_to_tt(bestValue, ss->ply, pos.rule50_count()), pvHit,
               bestValue >= beta ? BOUND_LOWER :
               PvNode && bestValue > oldAlpha  ? BOUND_EXACT : BOUND_UPPER,
               ttDepth, bestMove, ss->staticEval);
@@ -1422,27 +1424,38 @@ moves_loop: // When in check, search starts from here
 
 
   // value_to_tt() adjusts a mate score from "plies to mate from the root" to
-  // "plies to mate from the current position". Non-mate scores are unchanged.
+  // "plies to mate from the current position". Draw scores, i.e. 0 and +/-1,
+  // are combined with the 50-move counter and mapped to the interval [-356,0].
+  // Other negative scores are adjusted to avoid this interval.
+  // Positive scores other than draws and mates are unchanged.
   // The function is called before storing a value in the transposition table.
 
-  Value value_to_tt(Value v, int ply) {
+  Value value_to_tt(Value v, int ply, int rule50) {
 
     assert(v != VALUE_NONE);
+    assert(rule50 >= 0 && rule50 <= 100);
 
     return  v >= VALUE_MATE_IN_MAX_PLY  ? v + ply
-          : v <= VALUE_MATED_IN_MAX_PLY ? v - ply : v;
+          : v <= VALUE_MATED_IN_MAX_PLY ? v - ply - 400
+          : abs(v) <= 1 ? -Value((v + 2) << 7 | rule50)
+          : v < VALUE_DRAW ? v - 400
+          : v;
   }
 
 
   // value_from_tt() is the inverse of value_to_tt(): It adjusts a mate score
   // from the transposition table (which refers to the plies to mate/be mated
   // from current position) to "plies to mate/be mated from the root".
+  // Also reverts the operations used to store 50-move counters of draws.
 
   Value value_from_tt(Value v, int ply) {
 
     return  v == VALUE_NONE             ? VALUE_NONE
           : v >= VALUE_MATE_IN_MAX_PLY  ? v - ply
-          : v <= VALUE_MATED_IN_MAX_PLY ? v + ply : v;
+          : v <= VALUE_MATED_IN_MAX_PLY - 400 ? v + ply + 400
+          : v > VALUE_DRAW ? v
+          : v <= VALUE_DRAW - 400 ? v + 400
+          : Value((-v >> 7) - 2);
   }
 
 
