@@ -1435,6 +1435,10 @@ moves_loop: // When in check, search starts from here
     assert(v != VALUE_NONE);
     assert(rule50 >= 0 && rule50 <= 100);
 
+    // store the counter only if it is close enough to the limit
+    if (rule50 < 80)
+        rule50 = 0;
+
     return  v >= VALUE_MATE_IN_MAX_PLY  ? v + ply
           : v <= VALUE_MATED_IN_MAX_PLY ? v - ply - 400
           : abs(v) <= 1 ? -Value((v + 2) << 7 | rule50)
