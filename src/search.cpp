@@ -1198,8 +1198,8 @@ moves_loop: // When in check, search starts from here
         bestValue = std::min(bestValue, maxValue);
 
     // Cap the depth saved to TT if bestValue is draw and the 50-move limit is close
-    Depth ttDepth = abs(bestValue) > MAX_VALUE_DRAW ? depth
-                    : std::min(depth, (100-pos.rule50_count()) * ONE_PLY);
+    Depth ttDepth = abs(bestValue) <= MAX_VALUE_DRAW && pos.rule50_count() >= 95 ?
+                    std::min(depth, (100-pos.rule50_count()) * ONE_PLY) : depth;
 
     if (!excludedMove)
         tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
