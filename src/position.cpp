@@ -1043,10 +1043,6 @@ Key Position::key_after(Move m) const {
 
   if (captured)
       k ^= Zobrist::psq[captured][to];
-  else if (   st->rule50 >= MinHashedRule50 - 1
-           && st->rule50 <= 98
-           && type_of(pc) != PAWN)
-      k ^= rule50_keys[st->rule50+1];
 
   return k ^ Zobrist::psq[pc][to] ^ Zobrist::psq[pc][from];
 }
