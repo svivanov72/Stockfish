@@ -147,6 +147,8 @@ public:
   Key key_after(Move m) const;
   Key material_key() const;
   Key pawn_key() const;
+  // key for TT probe
+  Key ttkey() const;
 
   // Other properties of the position
   Color side_to_move() const;
@@ -339,6 +341,12 @@ inline Key Position::pawn_key() const {
 
 inline Key Position::material_key() const {
   return st->materialKey;
+}
+
+extern Key rule50_keys[100];
+
+inline Key Position::ttkey() const {
+  return st->key ^ ( st->rule50 < 100 ? rule50_keys[st->rule50] : 0);
 }
 
 inline Score Position::psq_score() const {

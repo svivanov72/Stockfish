@@ -138,6 +138,9 @@ inline int H2(Key h) { return (h >> 16) & 0x1fff; }
 Key cuckoo[8192];
 Move cuckooMove[8192];
 
+// Keys for 50-move counters close to the limit
+Key rule50_keys[100];
+constexpr int MinHashedRule50 = 80;
 
 /// Position::init() initializes at startup the various arrays used to compute
 /// hash keys.
@@ -190,6 +193,10 @@ void Position::init() {
                   count++;
              }
   assert(count == 3668);
+
+  // Initialize 50-move keys
+  for (int i=0; i<100; ++i)
+      rule50_keys[i] = i < MinHashedRule50 ? 0 : rng.rand<Key>();
 }
 
 
@@ -1036,6 +1043,10 @@ Key Position::key_after(Move m) const {
 
   if (captured)
       k ^= Zobrist::psq[captured][to];
+  else if (   st->rule50 >= MinHashedRule50 - 1
+           && st->rule50 <= 98
+           && type_of(pc) != PAWN)
+      k ^= rule50_keys[st->rule50+1];
 
   return k ^ Zobrist::psq[pc][to] ^ Zobrist::psq[pc][from];
 }
