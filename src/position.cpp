@@ -140,7 +140,7 @@ Move cuckooMove[8192];
 
 // Keys for 50-move counters close to the limit
 Key rule50_keys[100];
-constexpr int MinHashedRule50 = 80;
+constexpr int MinHashedRule50 = 90;
 
 /// Position::init() initializes at startup the various arrays used to compute
 /// hash keys.
