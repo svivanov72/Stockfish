@@ -1133,9 +1133,9 @@ bool Position::is_draw(int ply) const {
   if (st->rule50 > 99 && (!checkers() || MoveList<LEGAL>(*this).size()))
       return true;
 
-  // Return a draw score if a position repeats once earlier but strictly
-  // after the root, or repeats twice before or at the root.
-  if (st->repetition && st->repetition < ply)
+  // Return a draw score if a position repeats once earlier
+  // after or at the root, or repeats twice before the root.
+  if (st->repetition && st->repetition <= ply)
       return true;
 
   return false;
@@ -1189,10 +1189,10 @@ bool Position::has_game_cycle(int ply) const {
 
           if (!(between_bb(s1, s2) & pieces()))
           {
-              if (ply > i)
+              if (ply >= i)
                   return true;
 
-              // For nodes before or at the root, check that the move is a repetition one
+              // For nodes before the root, check that the move is a repetition one
               // rather than a move to the current position.
               // In the cuckoo table, both moves Rc1c5 and Rc5c1 are stored in the same
               // location, so we have to select which square to check.
