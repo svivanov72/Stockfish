@@ -1189,10 +1189,10 @@ bool Position::has_game_cycle(int ply) const {
 
           if (!(between_bb(s1, s2) & pieces()))
           {
-              if (ply >= i)
+              if (ply > i)
                   return true;
 
-              // For nodes before the root, check that the move is a repetition one
+              // For nodes before or at the root, check that the move is a repetition one
               // rather than a move to the current position.
               // In the cuckoo table, both moves Rc1c5 and Rc5c1 are stored in the same
               // location, so we have to select which square to check.
