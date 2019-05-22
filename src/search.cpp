@@ -94,12 +94,12 @@ namespace {
     v = std::min(Value(450), std::max(-Value(450), v));
 
     if (pos.rule50_count() > 99)
-        return v / 150;
+        return v / 80;
 
     // The value is roughly proportional to the last static eval
     // but it is pushed towards zero if we are far from the search horizon
     int d = depth > DEPTH_ZERO ? depth / ONE_PLY : 0;
-    v /= 20*(d+6);
+    v /= 20*(d+4);
 
     return v;
   }
