@@ -85,10 +85,23 @@ namespace {
     return d > 17 ? 0 : 29 * d * d + 138 * d - 134;
   }
 
-  // Add a small random component to draw evaluations to avoid 3fold-blindness
-  Value value_draw(Depth depth, Thread* thisThread) {
-    return depth < 4 * ONE_PLY ? VALUE_DRAW
-                               : VALUE_DRAW + Value(2 * (thisThread->nodes & 1) - 1);
+  // Search value for repetitions and 50-move draws
+  Value draw_value(Position& pos, Stack *ss, Depth depth) {
+
+    if (pos.rule50_count() > 99)
+        return VALUE_DRAW;
+
+    Value v = (ss-1)->staticEval != VALUE_NONE ? -(ss-1)->staticEval :
+              (ss-2)->staticEval != VALUE_NONE ?  (ss-2)->staticEval : VALUE_ZERO;
+
+    v = std::min(Value(450), std::max(-Value(450), v));
+
+    // The value is roughly proportional to the last static eval
+    // but it is pushed towards zero if we are far from the search horizon
+    int d = depth > DEPTH_ZERO ? depth / ONE_PLY : 0;
+    v /= 20*(d+6);
+
+    return v;
   }
 
   // Skill structure is used to implement strength limit
@@ -513,7 +526,7 @@ namespace {
         && !rootNode
         && pos.has_game_cycle(ss->ply))
     {
-        alpha = value_draw(depth, pos.this_thread());
+        alpha = draw_value(pos, ss, depth);
         if (alpha >= beta)
             return alpha;
     }
@@ -563,7 +576,7 @@ namespace {
             || pos.is_draw(ss->ply)
             || ss->ply >= MAX_PLY)
             return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos)
-                                                    : value_draw(depth, pos.this_thread());
+                                                    : draw_value(pos, ss, depth);
 
         // Step 3. Mate distance pruning. Even if we mate at the next move our score
         // would be at best mate_in(ss->ply+1), but if alpha is already bigger because
@@ -1248,7 +1261,7 @@ moves_loop: // When in check, search starts from here
     // Check for an immediate draw or maximum ply reached
     if (   pos.is_draw(ss->ply)
         || ss->ply >= MAX_PLY)
-        return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos) : VALUE_DRAW;
+        return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos) : draw_value(pos, ss, depth);
 
     assert(0 <= ss->ply && ss->ply < MAX_PLY);
 
