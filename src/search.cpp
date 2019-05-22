@@ -88,13 +88,13 @@ namespace {
   // Search value for repetitions and 50-move draws
   Value draw_value(Position& pos, Stack *ss, Depth depth) {
 
-    if (pos.rule50_count() > 99)
-        return VALUE_DRAW;
-
     Value v = (ss-1)->staticEval != VALUE_NONE ? -(ss-1)->staticEval :
               (ss-2)->staticEval != VALUE_NONE ?  (ss-2)->staticEval : VALUE_ZERO;
 
     v = std::min(Value(450), std::max(-Value(450), v));
+
+    if (pos.rule50_count() > 99)
+        return v / 150;
 
     // The value is roughly proportional to the last static eval
     // but it is pushed towards zero if we are far from the search horizon
