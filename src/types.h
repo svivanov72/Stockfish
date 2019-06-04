@@ -176,6 +176,7 @@ enum Value : int {
   VALUE_MATE      = 32000,
   VALUE_INFINITE  = 32001,
   VALUE_NONE      = 32002,
+  VALUE_TT_DRAW   = 32003,
 
   VALUE_MATE_IN_MAX_PLY  =  VALUE_MATE - 2 * MAX_PLY,
   VALUE_MATED_IN_MAX_PLY = -VALUE_MATE + 2 * MAX_PLY,
@@ -187,6 +188,25 @@ enum Value : int {
   QueenValueMg  = 2529,  QueenValueEg  = 2687,
 
   MidgameLimit  = 15258, EndgameLimit  = 3915
+};
+
+/// ExtVal is either a position value multiplied by EvalUnit,
+/// or a small number of absolute value at most EXTVAL_MAX_DRAW.
+/// This is used for arguments and return values of search.
+enum ExtVal : int {
+  EXTVAL_ZERO = 0,
+  EXTVAL_DRAW = 0,
+  EXTVAL_MAX_DRAW = 127,
+
+  EvalUnit = 256,
+
+  EXTVAL_KNOWN_WIN = VALUE_KNOWN_WIN * EvalUnit,
+  EXTVAL_MATE      = VALUE_MATE      * EvalUnit,
+  EXTVAL_INFINITE  = VALUE_INFINITE  * EvalUnit,
+  EXTVAL_NONE      = VALUE_NONE      * EvalUnit,
+
+  EXTVAL_MATE_IN_MAX_PLY = VALUE_MATE_IN_MAX_PLY * EvalUnit,
+  EXTVAL_MATED_IN_MAX_PLY = -EXTVAL_MATE_IN_MAX_PLY
 };
 
 enum PieceType {
@@ -301,6 +321,7 @@ inline T& operator/=(T& d, int i) { return d = T(int(d) / i); }
 ENABLE_FULL_OPERATORS_ON(Value)
 ENABLE_FULL_OPERATORS_ON(Depth)
 ENABLE_FULL_OPERATORS_ON(Direction)
+ENABLE_FULL_OPERATORS_ON(ExtVal)
 
 ENABLE_INCR_OPERATORS_ON(PieceType)
 ENABLE_INCR_OPERATORS_ON(Piece)
@@ -314,6 +335,43 @@ ENABLE_BASE_OPERATORS_ON(Score)
 #undef ENABLE_FULL_OPERATORS_ON
 #undef ENABLE_INCR_OPERATORS_ON
 #undef ENABLE_BASE_OPERATORS_ON
+
+/// Conversion to and from ExtVal.
+// For int -> ExtVal conversion, multiply by EvalUnit
+// For Value -> ExtVal, call make_extval()
+// For ExtVal -> Value, call base_value()
+constexpr ExtVal make_extval(Value v) {
+  return ExtVal(int(v) * EvalUnit);
+}
+
+constexpr Value base_value(ExtVal v) {
+  return Value(int(v / EvalUnit));
+}
+
+// Let abs() of an ExtVal be of the same type
+constexpr ExtVal abs(ExtVal v) {
+    return ExtVal(abs(int(v)));
+}
+
+// Rounding ExtVal to a multiple of EvalUnit.
+constexpr ExtVal round_down(ExtVal v) { return ExtVal(int(v) & ~(int(EvalUnit) - 1)); }
+constexpr ExtVal round_up(ExtVal v)   { return round_down(v + EvalUnit - ExtVal(1)); }
+constexpr ExtVal round(ExtVal v)      { return round_down(v + EvalUnit / 2); }
+
+// Adding integers to an ExtVal may be dangerous, but we need
+// to add and subtract one in the arguments of non-PV searches.
+constexpr ExtVal next(ExtVal v) { return ExtVal(int(v)+1); }
+constexpr ExtVal prev(ExtVal v) { return ExtVal(int(v)-1); }
+
+// Forbid non-scalable arithmetics on ExtVal
+ExtVal operator+(ExtVal, int) = delete;
+ExtVal operator+(int, ExtVal) = delete;
+ExtVal operator-(ExtVal, int) = delete;
+ExtVal operator-(int, ExtVal) = delete;
+ExtVal& operator+=(ExtVal, int) = delete;
+int& operator+=(int, ExtVal) = delete;
+ExtVal& operator-=(ExtVal, int) = delete;
+int& operator-=(int, ExtVal) = delete;
 
 /// Additional operators to add integers to a Value
 constexpr Value operator+(Value v, int i) { return Value(int(v) + i); }
@@ -368,12 +426,12 @@ constexpr CastlingRight operator|(Color c, CastlingSide s) {
   return CastlingRight(WHITE_OO << ((s == QUEEN_SIDE) + 2 * c));
 }
 
-constexpr Value mate_in(int ply) {
-  return VALUE_MATE - ply;
+constexpr ExtVal mate_in(int ply) {
+  return make_extval(VALUE_MATE - ply);
 }
 
-constexpr Value mated_in(int ply) {
-  return -VALUE_MATE + ply;
+constexpr ExtVal mated_in(int ply) {
+  return make_extval(-VALUE_MATE + ply);
 }
 
 constexpr Square make_square(File f, Rank r) {

@@ -66,8 +66,8 @@ struct RootMove {
                             : m.previousScore < previousScore;
   }
 
-  Value score = -VALUE_INFINITE;
-  Value previousScore = -VALUE_INFINITE;
+  ExtVal score = -EXTVAL_INFINITE;
+  ExtVal previousScore = -EXTVAL_INFINITE;
   int selDepth = 0;
   int tbRank;
   Value tbScore;
