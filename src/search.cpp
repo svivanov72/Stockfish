@@ -522,11 +522,11 @@ namespace {
     // Check if we have an upcoming move which draws by repetition, or
     // if the opponent had an alternative move earlier to this position.
     if (   pos.rule50_count() >= 3
-        && alpha < VALUE_DRAW
+        && alpha < Value(5) // maximum of draw_value()
         && !rootNode
         && pos.has_game_cycle(ss->ply))
     {
-        alpha = draw_value(pos, ss, depth);
+        alpha = std::max(alpha, draw_value(pos, ss, depth));
         if (alpha >= beta)
             return alpha;
     }
