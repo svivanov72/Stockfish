@@ -85,13 +85,21 @@ namespace {
     return d > 17 ? 0 : 29 * d * d + 138 * d - 134;
   }
 
-  // Add a small random component to draw evaluations to avoid 3fold-blindness
-  Value value_draw(Depth depth, Thread* thisThread) {
-    return depth < 4 * ONE_PLY ? VALUE_DRAW
-                               : VALUE_DRAW + Value(2 * (thisThread->nodes & 1) - 1);
+  // Search value for repetitions and 50-move draws
+  ExtVal draw_value(Position& pos, Stack *ss, Depth depth) {
+
+    Value v = (ss-1)->staticEval != VALUE_NONE ? -(ss-1)->staticEval :
+              (ss-2)->staticEval != VALUE_NONE ?  (ss-2)->staticEval : VALUE_ZERO;
+
+    // The value is roughly proportional to the last static eval
+    // but it is pushed towards zero if we are far from the search horizon
+    int d = depth > DEPTH_ZERO && pos.rule50_count() <= 99 ? depth / ONE_PLY : 0;
+    v /= d + 8;
+
+    return std::min(EXTVAL_MAX_DRAW, std::max(-EXTVAL_MAX_DRAW, ExtVal(int(v))));
   }
 
-  // Skill structure is used to implement strength limit
+// Skill structure is used to implement strength limit
   struct Skill {
     explicit Skill(int l) : level(l) {}
     bool enabled() const { return level < 20; }
@@ -512,11 +520,11 @@ namespace {
     // Check if we have an upcoming move which draws by repetition, or
     // if the opponent had an alternative move earlier to this position.
     if (   pos.rule50_count() >= 3
-        && alpha < EXTVAL_DRAW
+        && alpha < EXTVAL_MAX_DRAW
         && !rootNode
         && pos.has_game_cycle(ss->ply))
     {
-        alpha = std::max(alpha, make_extval(value_draw(depth, pos.this_thread())));
+        alpha = std::max(alpha, draw_value(pos, ss, depth));
         if (alpha >= beta)
             return alpha;
     }
@@ -566,7 +574,7 @@ namespace {
             || pos.is_draw(ss->ply)
             || ss->ply >= MAX_PLY)
             return (ss->ply >= MAX_PLY && !inCheck) ? make_extval(evaluate(pos))
-                                                    : make_extval(value_draw(depth, pos.this_thread()));
+                                                    : draw_value(pos, ss, depth);
 
         // Step 3. Mate distance pruning. Even if we mate at the next move our score
         // would be at best mate_in(ss->ply+1), but if alpha is already bigger because
@@ -1180,7 +1188,7 @@ moves_loop: // When in check, search starts from here
 
     if (!moveCount)
         bestValue = excludedMove ? round_down(alpha)
-                   :     inCheck ? mated_in(ss->ply) : EXTVAL_DRAW;
+                   :     inCheck ? mated_in(ss->ply) : draw_value(pos, ss, depth);
     else if (bestMove)
     {
         // Quiet best move: update move sorting heuristics
