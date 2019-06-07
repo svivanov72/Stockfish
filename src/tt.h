@@ -48,7 +48,7 @@ struct TTEntry {
 private:
   friend class TranspositionTable;
 
-  uint16_t key16;
+  uint32_t key32;
   uint16_t move16;
   int16_t  value16;
   int16_t  eval16;
@@ -67,7 +67,7 @@ private:
 class TranspositionTable {
 
   static constexpr int CacheLineSize = 64;
-  static constexpr int ClusterSize = 6;
+  static constexpr int ClusterSize = 5;
 
   struct Cluster {
     TTEntry entry[ClusterSize];
