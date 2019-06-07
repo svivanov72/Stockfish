@@ -108,6 +108,7 @@ namespace {
   template <NodeType NT>
   Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth = DEPTH_ZERO);
 
+  Value evaluate_with_tt(Position& pos, Stack* ss, TTEntry* tte, bool ttHit, Value ttValue, int bonus = 0);
   Value value_to_tt(Value v, int ply);
   Value value_from_tt(Value v, int ply);
   void update_pv(Move* pv, Move move, Move* childPv);
@@ -694,46 +695,11 @@ namespace {
         improving = false;
         goto moves_loop;  // Skip early pruning when in check
     }
-    else if (ttHit)
-    {
-        // Never assume anything on values stored in TT
-        ss->staticEval = eval = tte->eval();
-        if (eval == VALUE_NONE)
-            ss->staticEval = eval = evaluate(pos);
-
-        // Can ttValue be used as a better position evaluation?
-        if (    ttValue != VALUE_NONE
-            && (tte->bound() & (ttValue > eval ? BOUND_LOWER : BOUND_UPPER)))
-            eval = ttValue;
-    }
     else
     {
-        bool ttHit0 = false;
-        if (pos.rule50_count() >= MinHashedRule50)
-        {
-            // try to find the static eval using the normal key
-            TTEntry* tte0 = TT.probe(pos.key(), ttHit0);
-            if (ttHit0)
-            {
-                ttMove = tte0->move();
-                eval = tte0->eval();
-            }
-        }
-
-        if (!ttHit0 || eval == VALUE_NONE)
-        {
-            if ((ss-1)->currentMove != MOVE_NULL)
-            {
-                int bonus = -(ss-1)->statScore / 512;
-
-                eval = evaluate(pos) + bonus;
-            }
-            else
-                eval = -(ss-1)->staticEval + 2 * Eval::Tempo;
-        }
-
-        ss->staticEval = eval;
-        tte->save(posKey, VALUE_NONE, ttPv, BOUND_NONE, DEPTH_NONE, MOVE_NONE, eval);
+        eval = evaluate_with_tt(pos, ss, tte, ttHit, ttValue, -(ss-1)->statScore / 512);
+        if (!ttHit)
+            tte->save(posKey, VALUE_NONE, ttPv, BOUND_NONE, DEPTH_NONE, MOVE_NONE, ss->staticEval);
     }
 
     // Step 7. Razoring (~2 Elo)
@@ -1296,37 +1262,7 @@ moves_loop: // When in check, search starts from here
     }
     else
     {
-        if (ttHit)
-        {
-            // Never assume anything on values stored in TT
-            if ((ss->staticEval = bestValue = tte->eval()) == VALUE_NONE)
-                ss->staticEval = bestValue = evaluate(pos);
-
-            // Can ttValue be used as a better position evaluation?
-            if (    ttValue != VALUE_NONE
-                && (tte->bound() & (ttValue > bestValue ? BOUND_LOWER : BOUND_UPPER)))
-                bestValue = ttValue;
-        }
-        else
-        {
-            bool ttHit0 = false;
-            if (pos.rule50_count() >= MinHashedRule50)
-            {
-                // try to find the static eval using the normal key
-                TTEntry* tte0 = TT.probe(pos.key(), ttHit0);
-                if (ttHit0)
-                {
-                    ttMove = tte0->move();
-                    bestValue = tte0->eval();
-                }
-            }
-
-            if (!ttHit0 || bestValue == VALUE_NONE)
-                bestValue = (ss-1)->currentMove != MOVE_NULL ? evaluate(pos)
-                          : -(ss-1)->staticEval + 2 * Eval::Tempo;
-
-            ss->staticEval = bestValue;
-        }
+        bestValue = evaluate_with_tt(pos, ss, tte, ttHit, ttValue);
 
         // Stand pat. Return immediately if static value is at least beta
         if (bestValue >= beta)
@@ -1455,6 +1391,49 @@ moves_loop: // When in check, search starts from here
     return bestValue;
   }
 
+
+  // evaluate_with_tt() sets ss->staticEval and returns either the static evaluation
+  // or ttValue if it is better
+  Value evaluate_with_tt(Position& pos, Stack* ss, TTEntry* tte, bool ttHit, Value ttValue, int bonus) {
+
+    Value eval = ttHit ? tte->eval() : VALUE_NONE;
+
+    // Never assume anything on values stored in TT
+    if (eval == VALUE_NONE)
+    {
+        TTEntry* tteBase = nullptr;
+
+        // If there is no valid TT entry for the rule50-modified key,
+        // try to find the static eval using the base key.
+        if (pos.rule50_count() >= MinHashedRule50)
+        {
+            bool ttHitBase;
+            tteBase = TT.probe(pos.key(), ttHitBase);
+            if (ttHitBase)
+                eval = tteBase->eval();
+        }
+
+        if (eval == VALUE_NONE)
+        {
+            eval = ((ss-1)->currentMove != MOVE_NULL) ? evaluate(pos) + bonus
+                   : -(ss-1)->staticEval + 2 * Eval::Tempo;
+            // Save the static eval under the base key
+            if (tteBase)
+                tteBase->save(pos.key(), VALUE_NONE, false, BOUND_NONE, DEPTH_NONE, MOVE_NONE, eval);
+        }
+    }
+
+    ss->staticEval = eval;
+
+    assert(ttHit || ttValue == VALUE_NONE);
+
+    // Can ttValue be used as a better position evaluation?
+    if (    ttValue != VALUE_NONE
+        && (tte->bound() & (ttValue > eval ? BOUND_LOWER : BOUND_UPPER)))
+        return ttValue;
+
+    return eval;
+  }
 
   // value_to_tt() adjusts a mate score from "plies to mate from the root" to
   // "plies to mate from the current position". Non-mate scores are unchanged.
