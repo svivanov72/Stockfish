@@ -344,6 +344,7 @@ inline Key Position::material_key() const {
 }
 
 extern Key rule50_keys[100];
+constexpr int MinHashedRule50 = 80;
 
 inline Key Position::ttkey() const {
   return st->key ^ ( st->rule50 < 100 ? rule50_keys[st->rule50] : 0);

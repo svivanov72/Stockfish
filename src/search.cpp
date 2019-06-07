@@ -708,15 +708,31 @@ namespace {
     }
     else
     {
-        if ((ss-1)->currentMove != MOVE_NULL)
+        bool ttHit0 = false;
+        if (pos.rule50_count() >= MinHashedRule50)
         {
-            int bonus = -(ss-1)->statScore / 512;
-
-            ss->staticEval = eval = evaluate(pos) + bonus;
+            // try to find the static eval using the normal key
+            TTEntry* tte0 = TT.probe(pos.key(), ttHit0);
+            if (ttHit0)
+            {
+                ttMove = tte0->move();
+                eval = tte0->eval();
+            }
         }
-        else
-            ss->staticEval = eval = -(ss-1)->staticEval + 2 * Eval::Tempo;
 
+        if (!ttHit0 || eval == VALUE_NONE)
+        {
+            if ((ss-1)->currentMove != MOVE_NULL)
+            {
+                int bonus = -(ss-1)->statScore / 512;
+
+                eval = evaluate(pos) + bonus;
+            }
+            else
+                eval = -(ss-1)->staticEval + 2 * Eval::Tempo;
+        }
+
+        ss->staticEval = eval;
         tte->save(posKey, VALUE_NONE, ttPv, BOUND_NONE, DEPTH_NONE, MOVE_NONE, eval);
     }
 
@@ -1292,9 +1308,25 @@ moves_loop: // When in check, search starts from here
                 bestValue = ttValue;
         }
         else
-            ss->staticEval = bestValue =
-            (ss-1)->currentMove != MOVE_NULL ? evaluate(pos)
-                                             : -(ss-1)->staticEval + 2 * Eval::Tempo;
+        {
+            bool ttHit0 = false;
+            if (pos.rule50_count() >= MinHashedRule50)
+            {
+                // try to find the static eval using the normal key
+                TTEntry* tte0 = TT.probe(pos.key(), ttHit0);
+                if (ttHit0)
+                {
+                    ttMove = tte0->move();
+                    bestValue = tte0->eval();
+                }
+            }
+
+            if (!ttHit0 || bestValue == VALUE_NONE)
+                bestValue = (ss-1)->currentMove != MOVE_NULL ? evaluate(pos)
+                          : -(ss-1)->staticEval + 2 * Eval::Tempo;
+
+            ss->staticEval = bestValue;
+        }
 
         // Stand pat. Return immediately if static value is at least beta
         if (bestValue >= beta)
