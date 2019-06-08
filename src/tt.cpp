@@ -46,7 +46,7 @@ void TTEntry::save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev) 
       || d / ONE_PLY + 10 > depth8
       || b == BOUND_EXACT)
   {
-      key32     = (uint16_t)(k >> 32);
+      key32     = (uint32_t)(k >> 32);
       value16   = (int16_t)v;
       eval16    = (int16_t)ev;
       genBound8 = (uint8_t)(TT.generation8 | uint8_t(pv) << 2 | b);
@@ -120,7 +120,7 @@ void TranspositionTable::clear() {
 TTEntry* TranspositionTable::probe(const Key key, bool& found) const {
 
   TTEntry* const tte = first_entry(key);
-  const uint16_t key32 = key >> 32;  // Use the high 32 bits as key inside the cluster
+  const uint32_t key32 = key >> 32;  // Use the high 32 bits as key inside the cluster
 
   for (int i = 0; i < ClusterSize; ++i)
       if (!tte[i].key32 || tte[i].key32 == key32)
