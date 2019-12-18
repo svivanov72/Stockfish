@@ -595,7 +595,7 @@ namespace {
     {
         alpha = value_draw(pos.this_thread());
         if (alpha >= beta)
-            return alpha;
+            return beta;
     }
 
     // Dive into quiescence search when the depth reaches zero
@@ -643,6 +643,8 @@ namespace {
             || pos.is_draw(ss->ply)
             || ss->ply >= MAX_PLY)
             return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos)
+                                                    : alpha > VALUE_DRAW ? alpha
+                                                    : beta < VALUE_DRAW ? beta
                                                     : value_draw(pos.this_thread());
 
         // Step 3. Mate distance pruning. Even if we mate at the next move our score
@@ -1360,7 +1362,10 @@ moves_loop: // When in check, search starts from here
     // Check for an immediate draw or maximum ply reached
     if (   pos.is_draw(ss->ply)
         || ss->ply >= MAX_PLY)
-        return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos) : VALUE_DRAW;
+        return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos)
+                                                : alpha > VALUE_DRAW ? alpha
+                                                : beta < VALUE_DRAW ? beta
+                                                : VALUE_DRAW;
 
     assert(0 <= ss->ply && ss->ply < MAX_PLY);
 
