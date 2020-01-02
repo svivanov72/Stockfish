@@ -71,7 +71,7 @@ namespace {
   }
 
   // Values higher than this slowly decrease with depth
-  const Value depthPenaltyBase = Value(300);
+  const Value depthPenaltyBase = VALUE_KNOWN_WIN;
 
   constexpr Value down_value(Value v) {
     return v > depthPenaltyBase ?  v-1 : v;
