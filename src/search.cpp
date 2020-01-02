@@ -70,6 +70,21 @@ namespace {
     return Value(217 * (d - improving));
   }
 
+  // Values higher than this slowly decrease with depth
+  const Value depthPenaltyBase = Value(300);
+
+  constexpr Value down_value(Value v) {
+    return v > depthPenaltyBase ?  v-1 : v;
+  }
+
+  constexpr Value up_alpha(Value alpha) {
+    return alpha >= depthPenaltyBase ? alpha+1 : alpha;
+  }
+
+  constexpr Value up_beta(Value beta) {
+    return beta > depthPenaltyBase ? beta+1 : beta;
+  }
+
   // Reductions lookup table, initialized at startup
   int Reductions[MAX_MOVES]; // [depth or moveNumber]
 
@@ -152,8 +167,7 @@ namespace {
   template <NodeType NT>
   Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth = 0);
 
-  Value value_to_tt(Value v, int ply);
-  Value value_from_tt(Value v, int ply, int r50c);
+  Value value_from_tt(Value v, int r50c);
   void update_pv(Move* pv, Move move, Move* childPv);
   void update_continuation_histories(Stack* ss, Piece pc, Square to, int bonus);
   void update_quiet_stats(const Position& pos, Stack* ss, Move move, int bonus);
@@ -516,7 +530,7 @@ void Thread::search() {
       // Have we found a "mate in x"?
       if (   Limits.mate
           && bestValue >= VALUE_MATE_IN_MAX_PLY
-          && VALUE_MATE - bestValue <= 2 * Limits.mate)
+          && VALUE_MATE - bestValue <= Limits.mate)
           Threads.stop = true;
 
       if (!mainThread)
@@ -651,8 +665,8 @@ namespace {
         // because we will never beat the current alpha. Same logic but with reversed
         // signs applies also in the opposite condition of being mated instead of giving
         // mate. In this case return a fail-high score.
-        alpha = std::max(mated_in(ss->ply), alpha);
-        beta = std::min(mate_in(ss->ply+1), beta);
+        alpha = std::max(-VALUE_MATE, alpha);
+        beta = std::min(VALUE_MATE-1, beta);
         if (alpha >= beta)
             return alpha;
     }
@@ -680,7 +694,7 @@ namespace {
     excludedMove = ss->excludedMove;
     posKey = pos.key() ^ Key(excludedMove << 16); // Isn't a very good hash
     tte = TT.probe(posKey, ttHit);
-    ttValue = ttHit ? value_from_tt(tte->value(), ss->ply, pos.rule50_count()) : VALUE_NONE;
+    ttValue = ttHit ? value_from_tt(tte->value(), pos.rule50_count()) : VALUE_NONE;
     ttMove =  rootNode ? thisThread->rootMoves[thisThread->pvIdx].pv[0]
             : ttHit    ? tte->move() : MOVE_NONE;
     ttPv = PvNode || (ttHit && tte->is_pv());
@@ -742,8 +756,8 @@ namespace {
 
                 int drawScore = TB::UseRule50 ? 1 : 0;
 
-                value =  wdl < -drawScore ? -VALUE_MATE + MAX_PLY + ss->ply + 1
-                       : wdl >  drawScore ?  VALUE_MATE - MAX_PLY - ss->ply - 1
+                value =  wdl < -drawScore ? -VALUE_MATE + MAX_PLY + 1
+                       : wdl >  drawScore ?  VALUE_MATE - MAX_PLY - 1
                                           :  VALUE_DRAW + 2 * wdl * drawScore;
 
                 Bound b =  wdl < -drawScore ? BOUND_UPPER
@@ -752,7 +766,7 @@ namespace {
                 if (    b == BOUND_EXACT
                     || (b == BOUND_LOWER ? value >= beta : value <= alpha))
                 {
-                    tte->save(posKey, value_to_tt(value, ss->ply), ttPv, b,
+                    tte->save(posKey, value, ttPv, b,
                               std::min(MAX_PLY - 1, depth + 6),
                               MOVE_NONE, VALUE_NONE);
 
@@ -921,7 +935,7 @@ namespace {
         search<NT>(pos, ss, alpha, beta, depth - 7, cutNode);
 
         tte = TT.probe(posKey, ttHit);
-        ttValue = ttHit ? value_from_tt(tte->value(), ss->ply, pos.rule50_count()) : VALUE_NONE;
+        ttValue = ttHit ? value_from_tt(tte->value(), pos.rule50_count()) : VALUE_NONE;
         ttMove = ttHit ? tte->move() : MOVE_NONE;
     }
 
@@ -1095,6 +1109,8 @@ moves_loop: // When in check, search starts from here
       // Step 15. Make the move
       pos.do_move(move, st, givesCheck);
 
+      Value upAlpha = up_alpha(alpha);
+
       // Step 16. Reduced depth search (LMR). If the move fails high it will be
       // re-searched at full depth.
       if (    depth >= 3
@@ -1171,7 +1187,7 @@ moves_loop: // When in check, search starts from here
 
           Depth d = clamp(newDepth - r, 1, newDepth);
 
-          value = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, d, true);
+          value = down_value(-search<NonPV>(pos, ss+1, -upAlpha-1, -upAlpha, d, true));
 
           doFullDepthSearch = (value > alpha && d != newDepth), didLMR = true;
       }
@@ -1181,8 +1197,7 @@ moves_loop: // When in check, search starts from here
       // Step 17. Full depth search when LMR is skipped or fails high
       if (doFullDepthSearch)
       {
-          value = -search<NonPV>(pos, ss+1, -(alpha+1), -alpha, newDepth, !cutNode);
-
+          value = down_value(-search<NonPV>(pos, ss+1, -upAlpha-1, -upAlpha, newDepth, !cutNode));
           if (didLMR && !captureOrPromotion)
           {
               int bonus = value > alpha ?  stat_bonus(newDepth)
@@ -1203,7 +1218,7 @@ moves_loop: // When in check, search starts from here
           (ss+1)->pv = pv;
           (ss+1)->pv[0] = MOVE_NONE;
 
-          value = -search<PV>(pos, ss+1, -beta, -alpha, newDepth, false);
+          value = down_value(-search<PV>(pos, ss+1, -up_beta(beta), -upAlpha, newDepth, false));
       }
 
       // Step 18. Undo move
@@ -1297,7 +1312,7 @@ moves_loop: // When in check, search starts from here
 
     if (!moveCount)
         bestValue = excludedMove ? alpha
-                   :     inCheck ? mated_in(ss->ply) : VALUE_DRAW;
+                   :     inCheck ? -VALUE_MATE : VALUE_DRAW;
 
     else if (bestMove)
         update_all_stats(pos, ss, bestMove, bestValue, beta, prevSq,
@@ -1312,7 +1327,7 @@ moves_loop: // When in check, search starts from here
         bestValue = std::min(bestValue, maxValue);
 
     if (!excludedMove)
-        tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
+        tte->save(posKey, bestValue, ttPv,
                   bestValue >= beta ? BOUND_LOWER :
                   PvNode && bestMove ? BOUND_EXACT : BOUND_UPPER,
                   depth, bestMove, ss->staticEval);
@@ -1372,7 +1387,7 @@ moves_loop: // When in check, search starts from here
     // Transposition table lookup
     posKey = pos.key();
     tte = TT.probe(posKey, ttHit);
-    ttValue = ttHit ? value_from_tt(tte->value(), ss->ply, pos.rule50_count()) : VALUE_NONE;
+    ttValue = ttHit ? value_from_tt(tte->value(), pos.rule50_count()) : VALUE_NONE;
     ttMove = ttHit ? tte->move() : MOVE_NONE;
     pvHit = ttHit && tte->is_pv();
 
@@ -1412,7 +1427,7 @@ moves_loop: // When in check, search starts from here
         if (bestValue >= beta)
         {
             if (!ttHit)
-                tte->save(posKey, value_to_tt(bestValue, ss->ply), pvHit, BOUND_LOWER,
+                tte->save(posKey, bestValue, pvHit, BOUND_LOWER,
                           DEPTH_NONE, MOVE_NONE, ss->staticEval);
 
             return bestValue;
@@ -1498,7 +1513,7 @@ moves_loop: // When in check, search starts from here
 
       // Make and search the move
       pos.do_move(move, st, givesCheck);
-      value = -qsearch<NT>(pos, ss+1, -beta, -alpha, depth - 1);
+      value = down_value(-qsearch<NT>(pos, ss+1, -up_beta(beta), -up_alpha(alpha), depth - 1));
       pos.undo_move(move);
 
       assert(value > -VALUE_INFINITE && value < VALUE_INFINITE);
@@ -1526,9 +1541,9 @@ moves_loop: // When in check, search starts from here
     // All legal moves have been searched. A special case: If we're in check
     // and no legal moves were found, it is checkmate.
     if (inCheck && bestValue == -VALUE_INFINITE)
-        return mated_in(ss->ply); // Plies to mate from the root
+        return -VALUE_MATE;
 
-    tte->save(posKey, value_to_tt(bestValue, ss->ply), pvHit,
+    tte->save(posKey, bestValue, pvHit,
               bestValue >= beta ? BOUND_LOWER :
               PvNode && bestValue > oldAlpha  ? BOUND_EXACT : BOUND_UPPER,
               ttDepth, bestMove, ss->staticEval);
@@ -1539,28 +1554,12 @@ moves_loop: // When in check, search starts from here
   }
 
 
-  // value_to_tt() adjusts a mate score from "plies to mate from the root" to
-  // "plies to mate from the current position". Non-mate scores are unchanged.
-  // The function is called before storing a value in the transposition table.
+  // value_from_tt() adjusts the mate score if it is unreliable due to 50-move counter
 
-  Value value_to_tt(Value v, int ply) {
+  Value value_from_tt(Value v, int r50c) {
 
-    assert(v != VALUE_NONE);
-
-    return  v >= VALUE_MATE_IN_MAX_PLY  ? v + ply
-          : v <= VALUE_MATED_IN_MAX_PLY ? v - ply : v;
-  }
-
-
-  // value_from_tt() is the inverse of value_to_tt(): It adjusts a mate score
-  // from the transposition table (which refers to the plies to mate/be mated
-  // from current position) to "plies to mate/be mated from the root".
-
-  Value value_from_tt(Value v, int ply, int r50c) {
-
-    return  v == VALUE_NONE             ? VALUE_NONE
-          : v >= VALUE_MATE_IN_MAX_PLY  ? VALUE_MATE - v > 99 - r50c ? VALUE_MATE_IN_MAX_PLY  : v - ply
-          : v <= VALUE_MATED_IN_MAX_PLY ? VALUE_MATE + v > 99 - r50c ? VALUE_MATED_IN_MAX_PLY : v + ply : v;
+    return  v >= VALUE_MATE_IN_MAX_PLY && 2 * (VALUE_MATE - v) > 101 - r50c ? VALUE_MATE_IN_MAX_PLY
+          : v <= VALUE_MATED_IN_MAX_PLY && 2 * (VALUE_MATE + v) > 100 - r50c ? VALUE_MATED_IN_MAX_PLY : v;
   }
 
 
