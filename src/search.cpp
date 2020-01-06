@@ -91,6 +91,8 @@ namespace {
   Value value_draw(Thread* thisThread) {
     return VALUE_DRAW + Value(2 * (thisThread->nodes & 1) - 1);
   }
+  // Maximum return value of value_draw()
+  constexpr int MaxDrawValue = 1;
 
   // Skill structure is used to implement strength limit
   struct Skill {
@@ -684,6 +686,9 @@ namespace {
     ttMove =  rootNode ? thisThread->rootMoves[thisThread->pvIdx].pv[0]
             : ttHit    ? tte->move() : MOVE_NONE;
     ttPv = PvNode || (ttHit && tte->is_pv());
+    // Randomize TT draw scores
+    if (abs(ttValue) <= MaxDrawValue)
+        ttValue = value_draw(thisThread);
     // thisThread->ttHitAverage can be used to approximate the running average of ttHit
     thisThread->ttHitAverage =   (ttHitAverageWindow - 1) * thisThread->ttHitAverage / ttHitAverageWindow
                                 + ttHitAverageResolution * ttHit;
