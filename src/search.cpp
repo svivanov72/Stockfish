@@ -1316,10 +1316,21 @@ moves_loop: // When in check, search starts from here
         bestValue = std::min(bestValue, maxValue);
 
     if (!excludedMove)
+    {
+        // Reduce depth for TT if the search returned an opposite bound
+        if (!PvNode
+            && depth >= 5
+            && tte->depth() >= depth - 4
+            && ttValue != VALUE_NONE
+            && (ttValue >= beta ? (tte->bound() & BOUND_LOWER) && bestValue < beta
+                            : (tte->bound() & BOUND_UPPER) && bestValue >= beta))
+            depth--;
+
         tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
                   bestValue >= beta ? BOUND_LOWER :
                   PvNode && bestMove ? BOUND_EXACT : BOUND_UPPER,
                   depth, bestMove, ss->staticEval);
+    }
 
     assert(bestValue > -VALUE_INFINITE && bestValue < VALUE_INFINITE);
 
