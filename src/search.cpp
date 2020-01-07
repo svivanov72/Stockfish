@@ -595,8 +595,13 @@ namespace {
     {
         alpha = value_draw(pos.this_thread());
         if (alpha >= beta)
+        {
+            ss->drawStat = 100;
             return alpha;
+        }
     }
+
+    ss->drawStat = 0;
 
     // Dive into quiescence search when the depth reaches zero
     if (depth <= 0)
@@ -642,8 +647,11 @@ namespace {
         if (   Threads.stop.load(std::memory_order_relaxed)
             || pos.is_draw(ss->ply)
             || ss->ply >= MAX_PLY)
+        {
+            ss->drawStat = 100;
             return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos)
                                                     : value_draw(pos.this_thread());
+        }
 
         // Step 3. Mate distance pruning. Even if we mate at the next move our score
         // would be at best mate_in(ss->ply+1), but if alpha is already bigger because
@@ -942,6 +950,7 @@ moves_loop: // When in check, search starts from here
     value = bestValue;
     singularLMR = moveCountPruning = false;
     ttCapture = ttMove && pos.capture_or_promotion(ttMove);
+    ss->drawStat = 0;
 
     // Mark this node as being searched
     ThreadHolding th(thisThread, posKey, ss->ply);
@@ -1054,6 +1063,8 @@ moves_loop: // When in check, search starts from here
           // a soft bound.
           else if (singularBeta >= beta)
               return singularBeta;
+
+          ss->drawStat = 0;
       }
 
       // Check extension (~2 Elo)
@@ -1213,6 +1224,12 @@ moves_loop: // When in check, search starts from here
       // Step 18. Undo move
       pos.undo_move(move);
 
+      // Collect draw statistics from the child node.
+      // Positive lower bounds and negative upper bounds should be valid
+      // for any path to a node. Such nodes are not included in the statistics
+      if ((value < beta && value >= -1) || (value > alpha && value <= 1))
+          ss->drawStat += (ss+1)->drawStat;
+
       assert(value > -VALUE_INFINITE && value < VALUE_INFINITE);
 
       // Step 19. Check for a new best move
@@ -1299,6 +1316,9 @@ moves_loop: // When in check, search starts from here
 
     assert(moveCount || !inCheck || excludedMove || !MoveList<LEGAL>(pos).size());
 
+    if (moveCount)
+        ss->drawStat /= moveCount;
+
     if (!moveCount)
         bestValue = excludedMove ? alpha
                    :     inCheck ? mated_in(ss->ply) : VALUE_DRAW;
@@ -1314,6 +1334,10 @@ moves_loop: // When in check, search starts from here
 
     if (PvNode)
         bestValue = std::min(bestValue, maxValue);
+
+    // Decrease TT depth if there are many draws in the subtree
+    if (ss->drawStat >= 20)
+        depth = std::max(1, depth - 2);
 
     if (!excludedMove)
         tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
