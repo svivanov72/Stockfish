@@ -1317,14 +1317,15 @@ moves_loop: // When in check, search starts from here
 
     if (!excludedMove)
     {
-        // Reduce depth for TT if the search returned an opposite bound
-        if (!PvNode
-            && depth >= 5
-            && tte->depth() >= depth - 4
-            && ttValue != VALUE_NONE
-            && (ttValue >= beta ? (tte->bound() & BOUND_LOWER) && bestValue < beta
-                            : (tte->bound() & BOUND_UPPER) && bestValue >= beta))
-            depth--;
+        // Reduce depth for TT if the result is too inconsistent with the one in TT
+        if (  !PvNode
+            && depth >= 4
+            && ttValue != VALUE_NONE // implies ttHit
+            && tte->depth() >= std::max(depth - 4, depth / 2 + 1)
+            && (bestValue >= beta ? ttValue < bestValue && (tte->bound() & BOUND_UPPER)
+                                  : ttValue > bestValue && (tte->bound() & BOUND_LOWER))
+            && abs(bestValue - ttValue) > 20)
+            depth -= abs(bestValue - ttValue) <= 50 ? 1 : 2;
 
         tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
                   bestValue >= beta ? BOUND_LOWER :
