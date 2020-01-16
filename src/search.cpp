@@ -1067,6 +1067,7 @@ moves_loop: // When in check, search starts from here
           // a soft bound.
           else if (singularBeta >= beta)
               return singularBeta;
+          ss->moveCount = moveCount;
       }
 
       // Check extension (~2 Elo)
