@@ -1320,9 +1320,11 @@ moves_loop: // When in check, search starts from here
 
     assert(moveCount || !inCheck || excludedMove || !MoveList<LEGAL>(pos).size());
 
+    if (excludedMove)
+        return moveCount ? bestValue : alpha;
+
     if (!moveCount)
-        bestValue = excludedMove ? alpha
-                   :     inCheck ? mated_in(ss->ply) : VALUE_DRAW;
+        bestValue = inCheck ? mated_in(ss->ply) : VALUE_DRAW;
 
     else if (bestMove)
         update_all_stats(pos, ss, bestMove, bestValue, beta, prevSq,
@@ -1336,8 +1338,7 @@ moves_loop: // When in check, search starts from here
     if (PvNode)
         bestValue = std::min(bestValue, maxValue);
 
-    if (!excludedMove)
-        tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
+    tte->save(posKey, value_to_tt(bestValue, ss->ply), ttPv,
                   bestValue >= beta ? BOUND_LOWER :
                   PvNode && bestMove ? BOUND_EXACT : BOUND_UPPER,
                   depth, bestMove, ss->staticEval);
