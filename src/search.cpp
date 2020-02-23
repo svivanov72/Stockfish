@@ -597,14 +597,34 @@ namespace {
     constexpr bool PvNode = NT == PV;
     const bool rootNode = PvNode && ss->ply == 0;
 
-    // Check if we have an upcoming move which draws by repetition, or
-    // if the opponent had an alternative move earlier to this position.
-    if (   pos.rule50_count() >= 3
-        && alpha < VALUE_DRAW
-        && !rootNode
-        && pos.has_game_cycle(ss->ply))
+    if (!rootNode)
     {
-        alpha = value_draw(pos.this_thread());
+        // Step 2. Check for aborted search and immediate draw
+        if (   Threads.stop.load(std::memory_order_relaxed)
+            || pos.is_draw(ss->ply)
+            || ss->ply >= MAX_PLY)
+            return (ss->ply >= MAX_PLY && !pos.checkers()) ? evaluate(pos)
+                                                           : value_draw(pos.this_thread());
+
+        // Check if we have an upcoming move which draws by repetition, or
+        // if the opponent had an alternative move earlier to this position.
+        if (   pos.rule50_count() >= 3
+            && alpha < VALUE_DRAW
+            && pos.has_game_cycle(ss->ply))
+        {
+            alpha = value_draw(pos.this_thread());
+            if (alpha >= beta)
+                return alpha;
+        }
+
+        // Step 3. Mate distance pruning. Even if we mate at the next move our score
+        // would be at best mate_in(ss->ply+1), but if alpha is already bigger because
+        // a shorter mate was found upward in the tree then there is no need to search
+        // because we will never beat the current alpha. Same logic but with reversed
+        // signs applies also in the opposite condition of being mated instead of giving
+        // mate. In this case return a fail-high score.
+        alpha = std::max(mated_in(ss->ply), alpha);
+        beta = std::min(mate_in(ss->ply+1), beta);
         if (alpha >= beta)
             return alpha;
     }
@@ -646,27 +666,6 @@ namespace {
     // Used to send selDepth info to GUI (selDepth counts from 1, ply from 0)
     if (PvNode && thisThread->selDepth < ss->ply + 1)
         thisThread->selDepth = ss->ply + 1;
-
-    if (!rootNode)
-    {
-        // Step 2. Check for aborted search and immediate draw
-        if (   Threads.stop.load(std::memory_order_relaxed)
-            || pos.is_draw(ss->ply)
-            || ss->ply >= MAX_PLY)
-            return (ss->ply >= MAX_PLY && !inCheck) ? evaluate(pos)
-                                                    : value_draw(pos.this_thread());
-
-        // Step 3. Mate distance pruning. Even if we mate at the next move our score
-        // would be at best mate_in(ss->ply+1), but if alpha is already bigger because
-        // a shorter mate was found upward in the tree then there is no need to search
-        // because we will never beat the current alpha. Same logic but with reversed
-        // signs applies also in the opposite condition of being mated instead of giving
-        // mate. In this case return a fail-high score.
-        alpha = std::max(mated_in(ss->ply), alpha);
-        beta = std::min(mate_in(ss->ply+1), beta);
-        if (alpha >= beta)
-            return alpha;
-    }
 
     assert(0 <= ss->ply && ss->ply < MAX_PLY);
 
